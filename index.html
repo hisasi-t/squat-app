@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>スクワット</title>
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="スクワット" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body { background: #111; font-family: 'Helvetica Neue', Arial, sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    #app { background: #1a1a1a; border-radius: 24px; padding: 40px 32px; width: 100%; max-width: 360px; min-height: 480px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 8px 40px rgba(0,0,0,0.6); transition: background 0.1s; }
+    .screen { display: none; flex-direction: column; align-items: center; gap: 16px; width: 100%; }
+    .screen.active { display: flex; }
+    .icon { font-size: 64px; }
+    .title { font-size: 36px; font-weight: 800; color: #fff; text-align: center; }
+    .subtitle { font-size: 18px; color: #aaa; text-align: center; line-height: 1.6; }
+    .hint { font-size: 14px; color: #666; text-align: center; line-height: 1.6; }
+    .warn { font-size: 14px; color: #f90; text-align: center; line-height: 1.6; }
+    .set-label { font-size: 22px; color: #4CAF50; font-weight: 700; }
+    .dots { display: flex; gap: 12px; margin-bottom: 8px; }
+    .dot { width: 16px; height: 16px; border-radius: 50%; background: #444; transition: background 0.3s; }
+    .dot.done { background: #4CAF50; }
+    .dot.current { background: #fff; }
+    .rep-count { font-size: 96px; font-weight: 900; color: #fff; line-height: 1; }
+    .rep-goal { font-size: 24px; color: #aaa; margin-top: -8px; }
+    .rest-timer { font-size: 80px; font-weight: 900; color: #4CAF50; line-height: 1; }
+    .big-btn { margin-top: 8px; width: 100%; padding: 20px 0; font-size: 22px; font-weight: 800; background: #4CAF50; color: #fff; border: none; border-radius: 16px; cursor: pointer; letter-spacing: 1px; }
+    .text-btn { background: none; border: none; color: #888; font-size: 16px; cursor: pointer; padding: 4px 0; }
+    .history-list { width: 100%; display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto; }
+    .history-row { display: flex; justify-content: space-between; background: #222; border-radius: 12px; padding: 14px 18px; }
+    .history-date { color: #aaa; font-size: 16px; }
+    .history-val { color: #fff; font-weight: 700; font-size: 16px; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HOME -->
+  <div class="screen active" id="screen-home">
+    <div class="icon">🦵</div>
+    <div class="title">スクワット</div>
+    <div class="subtitle">3セット × 10回</div>
+    <div class="hint">スマホをポケットか腰に入れて<br>自動でカウントします</div>
+    <button class="big-btn" onclick="startWorkout()">スタート</button>
+    <button class="text-btn" onclick="showHistory()">記録を見る 📋</button>
+  </div>
+
+  <!-- WORKOUT -->
+  <div class="screen" id="screen-workout">
+    <div class="set-label" id="set-label">セット 1 / 3</div>
+    <div class="dots" id="dots"></div>
+    <div class="rep-count" id="rep-count">0</div>
+    <div class="rep-goal">/ 10 回</div>
+    <div class="hint" id="sensor-hint">📱 スマホを腰に入れてください</div>
+    <button class="big-btn" id="tap-btn" style="display:none" onclick="countRep()">タップ ＋１</button>
+    <button class="text-btn" onclick="resetApp()">やめる</button>
+  </div>
+
+  <!-- REST -->
+  <div class="screen" id="screen-rest">
+    <div class="set-label" id="rest-label">✅ セット 1 完了！</div>
+    <div class="icon">😮‍💨</div>
+    <div class="title">休憩</div>
+    <div class="rest-timer" id="rest-timer">60</div>
+    <div class="subtitle">秒</div>
+    <button class="big-btn" onclick="skipRest()">スキップ →</button>
+  </div>
+
+  <!-- DONE -->
+  <div class="screen" id="screen-done">
+    <div class="icon">🎉</div>
+    <div class="title">完了！</div>
+    <div class="subtitle">3セット × 10回<br>お疲れ様でした</div>
+    <button class="big-btn" onclick="resetApp()">ホームへ</button>
+    <button class="text-btn" onclick="showHistory()">記録を見る 📋</button>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="screen" id="screen-history">
+    <div class="title">📋 記録</div>
+    <div class="history-list" id="history-list"></div>
+    <button class="big-btn" onclick="showScreen('home')">← 戻る</button>
+  </div>
+
+</div>
+<script>
+const TOTAL_SETS = 3;
+const REPS_PER_SET = 10;
+const REST_SECONDS = 60;
+const THRESHOLD = 2.5;
+const COOLDOWN_MS = 600;
+
+let currentSet = 1;
+let reps = 0;
+let restInterval = null;
+let lastTrigger = 0;
+let prevY = null;
+let sensorActive = false;
+
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+}
+
+function updateDots() {
+  const el = document.getElementById('dots');
+  el.innerHTML = '';
+  for (let i = 1; i <= TOTAL_SETS; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i < currentSet ? ' done' : i === currentSet ? ' current' : '');
+    el.appendChild(d);
+  }
+}
+
+function updateWorkoutUI() {
+  document.getElementById('set-label').textContent = 'セット ' + currentSet + ' / ' + TOTAL_SETS;
+  document.getElementById('rep-count').textContent = reps;
+  updateDots();
+}
+
+function startWorkout() {
+  currentSet = 1;
+  reps = 0;
+  prevY = null;
+  updateWorkoutUI();
+  showScreen('workout');
+  requestSensor();
+}
+
+function requestSensor() {
+  if (typeof DeviceMotionEvent !== 'undefined' &&
+      typeof DeviceMotionEvent.requestPermission === 'function') {
+    DeviceMotionEvent.requestPermission().then(p => {
+      if (p === 'granted') { activateSensor(); }
+      else { fallbackTap(); }
+    }).catch(() => fallbackTap());
+  } else if (typeof DeviceMotionEvent !== 'undefined') {
+    activateSensor();
+  } else {
+    fallbackTap();
+  }
+}
+
+function activateSensor() {
+  sensorActive = true;
+  document.getElementById('sensor-hint').textContent = '📱 スマホを腰に入れてください';
+  document.getElementById('tap-btn').style.display = 'none';
+  window.addEventListener('devicemotion', handleMotion);
+}
+
+function fallbackTap() {
+  sensorActive = false;
+  document.getElementById('sensor-hint').textContent = '⚠️ センサー不可 → タップでカウント';
+  document.getElementById('sensor-hint').className = 'warn';
+  document.getElementById('tap-btn').style.display = 'block';
+}
+
+function handleMotion(e) {
+  const ay = e.accelerationIncludingGravity && e.accelerationIncludingGravity.y;
+  if (ay == null) return;
+  if (prevY === null) { prevY = ay; return; }
+  const diff = ay - prevY;
+  prevY = ay;
+  const now = Date.now();
+  if (diff > THRESHOLD && now - lastTrigger > COOLDOWN_MS) {
+    lastTrigger = now;
+    countRep();
+  }
+}
+
+function countRep() {
+  // flash
+  document.getElementById('app').style.background = '#1a3a1a';
+  setTimeout(() => document.getElementById('app').style.background = '#1a1a1a', 200);
+
+  reps++;
+  document.getElementById('rep-count').textContent = reps;
+
+  if (reps >= REPS_PER_SET) {
+    if (currentSet >= TOTAL_SETS) {
+      window.removeEventListener('devicemotion', handleMotion);
+      saveRecord();
+      showScreen('done');
+    } else {
+      window.removeEventListener('devicemotion', handleMotion);
+      document.getElementById('rest-label').textContent = '✅ セット ' + currentSet + ' 完了！';
+      currentSet++;
+      reps = 0;
+      startRest();
+    }
+  }
+}
+
+function startRest() {
+  showScreen('rest');
+  let t = REST_SECONDS;
+  document.getElementById('rest-timer').textContent = t;
+  restInterval = setInterval(() => {
+    t--;
+    document.getElementById('rest-timer').textContent = t;
+    if (t <= 0) {
+      clearInterval(restInterval);
+      prevY = null;
+      updateWorkoutUI();
+      showScreen('workout');
+      requestSensor();
+    }
+  }, 1000);
+}
+
+function skipRest() {
+  clearInterval(restInterval);
+  prevY = null;
+  updateWorkoutUI();
+  showScreen('workout');
+  requestSensor();
+}
+
+function resetApp() {
+  clearInterval(restInterval);
+  window.removeEventListener('devicemotion', handleMotion);
+  currentSet = 1; reps = 0; prevY = null;
+  showScreen('home');
+}
+
+function saveRecord() {
+  const today = new Date().toISOString().slice(0, 10);
+  const history = JSON.parse(localStorage.getItem('squat_history') || '[]');
+  history.unshift({ date: today, sets: TOTAL_SETS, reps: TOTAL_SETS * REPS_PER_SET });
+  localStorage.setItem('squat_history', JSON.stringify(history.slice(0, 30)));
+}
+
+function showHistory() {
+  const history = JSON.parse(localStorage.getItem('squat_history') || '[]');
+  const el = document.getElementById('history-list');
+  if (history.length === 0) {
+    el.innerHTML = '<div style="color:#aaa;text-align:center;padding:20px">まだ記録がありません</div>';
+  } else {
+    el.innerHTML = history.map(h =>
+      '<div class="history-row"><span class="history-date">' + h.date + '</span><span class="history-val">' + h.sets + 'セット / ' + h.reps + '回</span></div>'
+    ).join('');
+  }
+  showScreen('history');
+}
+</script>
+</body>
+</html>
