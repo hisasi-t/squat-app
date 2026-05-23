@@ -1,0 +1,2 @@
+# squat-app
+Create repository
